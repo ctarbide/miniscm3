@@ -20,7 +20,7 @@
 
 /* Options */
 
-/* #define VERBOSE_GC	/* print GC stats */
+/* #define VERBOSE_GC*/	/* print GC stats */
 #define	LOOP_HACK	/* use "do { } while (0)" to delimit macros */
 #define USE_SETJMP	/* use setjmp() to recover from low mem and SIGINT */
 #define INTERNAL_INIT	/* compile init file into executable */
@@ -273,6 +273,11 @@ cell *mk_char(int c) {
 #define seg_str_size(p)	(p[0])
 #define seg_backref(p)	((cell *) p[1])
 
+#if __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#endif
+
 int alloc_strseg(void) {
 	long	free, size;
 	long	*p, *old_seg;
@@ -303,6 +308,10 @@ int alloc_strseg(void) {
 	}
 	return 1;
 }
+
+#if __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #define size_in_longs(k) \
 	(((k) + sizeof(long) - 1) / sizeof(long))
@@ -570,8 +579,8 @@ void gc(cell *a, cell *b) {
 #define	STRSIZE		256
 
 char	strbuf[STRSIZE];
-char	*currentchar = NULL;
-char	*endline = NULL;
+const char	*currentchar = NULL;
+const char	*endline = NULL;
 
 volatile int	intr = 0;
 
@@ -617,7 +626,7 @@ char *readtok(int fold) {
 
 	for (;;) {
 		if (p - strbuf >= STRSIZE)
-			return error("token too long");
+			return (char*)error("token too long");
 		c = fold? inchar(): _inchar();
 		*p = c;
 		if (p == strbuf+1 && *(p-1) == '\\')
@@ -636,7 +645,7 @@ char *readstring(void) {
 
 	for (;;) {
 		if (p - strbuf >= STRSIZE)
-			return error("string too long");
+			return (char*)error("string too long");
 		if ((c = _inchar()) == '\\') {
 			*p++ = _inchar();
 		} else if (c == EOF || c == '"') {
@@ -735,7 +744,8 @@ void printatom(cell *l, int f) {
 		p = "#<procedure>";
 	} else if (is_macro(l)) {
 		p = "#<macro>";
-	}
+	} else
+		p = "#<exhaustion>";
 	if (p) fputs(p, outfp);
 }
 
@@ -1072,6 +1082,7 @@ cell *op_toplvl(short op) {
 		}
 		s_goto(OP_EVAL);
 	}
+	return NIL;
 }
 
 cell *op_read(short op) {
@@ -1165,6 +1176,7 @@ cell *op_read(short op) {
 	case OP_RDUQTSP:
 		s_return(cons(UNQUOTESP, cons(value, NIL)));
 	}
+	return NIL;
 }
 
 cell *op_print(short op) {
@@ -1241,6 +1253,7 @@ cell *op_eval(short op) {
 		code = value;
 		s_goto(OP_EVAL);
 	}
+	return NIL;
 }
 
 cell *op_apply(short op) {
@@ -1304,6 +1317,7 @@ cell *op_apply(short op) {
 			error_0("eval", "invalid function");
 		}
 	}
+	return NIL;
 }
 
 cell *op_expmac(short op) {
@@ -1322,6 +1336,7 @@ cell *op_expmac(short op) {
 		code = value;
 		s_goto(OP_APPLY);
 	}
+	return NIL;
 }
 
 cell *op_gensym(short op) {
@@ -1373,6 +1388,7 @@ cell *op_def(short op) {
 		extend(code, value);
 		s_return(T);
 	}
+	return NIL;
 }
 
 cell *op_set(short op) {
@@ -1399,6 +1415,7 @@ cell *op_set(short op) {
 		} else
 			error_1("set!", "unbound symbol:", code);
 	}
+	return NIL;
 }
 
 cell *op_begin(short op) {
@@ -1428,6 +1445,7 @@ cell *op_if(short op) {
 						 * car(NIL) = NIL */
 		s_goto(OP_EVAL);
 	}
+	return NIL;
 }
 
 cell *op_let(short op) {
@@ -1481,6 +1499,7 @@ cell *op_let(short op) {
 		}
 		s_goto(OP_BEGIN);
 	}
+	return NIL;
 }
 
 cell *op_letseq(short op) {
@@ -1516,6 +1535,7 @@ cell *op_letseq(short op) {
 			s_goto(OP_BEGIN);
 		}
 	}
+	return NIL;
 }
 
 cell *op_letrec(short op) {
@@ -1552,6 +1572,7 @@ cell *op_letrec(short op) {
 		args = NIL;
 		s_goto(OP_BEGIN);
 	}
+	return NIL;
 }
 
 cell *op_cond(short op) {
@@ -1581,6 +1602,7 @@ cell *op_cond(short op) {
 			}
 		}
 	}
+	return NIL;
 }
 
 cell *op_and(short op) {
@@ -1602,6 +1624,7 @@ cell *op_and(short op) {
 			s_goto(OP_EVAL);
 		}
 	}
+	return NIL;
 }
 
 cell *op_or(short op) {
@@ -1623,6 +1646,7 @@ cell *op_or(short op) {
 			s_goto(OP_EVAL);
 		}
 	}
+	return NIL;
 }
 
 cell *op_defmac(short op) {
@@ -1641,6 +1665,7 @@ cell *op_defmac(short op) {
 		extend(code, value);
 		s_return(T);
 	}
+	return NIL;
 }
 
 cell *op_case(short op) {
@@ -1682,6 +1707,7 @@ cell *op_case(short op) {
 			s_return(NIL);
 		}
 	}
+	return NIL;
 }
 
 cell *op_callcc(short op) {
@@ -1806,7 +1832,7 @@ cell *minmax(char *name, int max) {
 		if (!is_int(car(x)))
 			error_1(name, "integer expected", car(x));
 		i = ivalue(car(x));
-		if (max && i > k || !max && i < k)
+		if ((max && i > k) || (!max && i < k))
 			k = i;
 	}
 	s_return(mk_number(k));
@@ -1921,7 +1947,7 @@ cell *memqv(char *name, int eq) {
 	typechk_2(name, args, 0, T_LIST);
 	y = car(args);
 	for (x = cadr(args); is_pair(x); x = cdr(x)) {
-		if (eq && car(x) == y || !eq && eqv(car(x), y))
+		if ((eq && car(x) == y) || (!eq && eqv(car(x), y)))
 			s_return(x);
 	}
 	s_return(F);
@@ -1939,7 +1965,7 @@ cell *assqv(char *name, int eq) {
 	for (x = cadr(args); is_pair(x); x = cdr(x)) {
 		if (!is_pair(car(x)))
 			error_1(name, "bad alist member", car(x));
-		if (eq && caar(x) == y || !eq && eqv(caar(x), y))
+		if ((eq && caar(x) == y) || (!eq && eqv(caar(x), y)))
 			s_return(car(x));
 	}
 	s_return(F);
@@ -2050,6 +2076,7 @@ cell *op_numeq(short op) {
 		}
 		s_return(T);
 	}
+	return NIL;
 }
 
 cell *op_less(short op) {
@@ -2110,7 +2137,6 @@ cell *op_pair(short op) {
 }
 
 cell *op_list(short op) {
-	char	*e;
 	cell	*x, *y;
 	int	lst = 1;
 
@@ -2203,6 +2229,7 @@ cell *op_write(short op) {
 		}
 
 	}
+	return NIL;
 }
 
 cell *op_display(short op) {
@@ -2253,6 +2280,7 @@ cell *op_error(short op) {
 			s_goto(OP_T0LVL);
 		}
 	}
+	return NIL;
 }
 
 cell *op_reverse(short op) {
@@ -2312,6 +2340,7 @@ cell *op_winfile(short op) {
 		infp = (FILE *) ivalue(args);
 		s_return(value);
 	}
+	return NIL;
 }
 
 cell *op_woutfile(short op) {
@@ -2339,6 +2368,7 @@ cell *op_woutfile(short op) {
 		outfp = (FILE *) ivalue(args);
 		s_return(T);
 	}
+	return NIL;
 }
 
 cell *op_eofobj(short op) {
@@ -2431,6 +2461,7 @@ cell *op_chreq(short op) {
 		}
 		s_return(T);
 	}
+	return NIL;
 }
 
 cell *op_chrlt(short op)  { sub_op = op; s_goto(OP_CHRPRED); }
@@ -2569,7 +2600,6 @@ cell *op_strlti(short op) {
 
 cell *op_strapnd(short op) {
 	cell	*x, *str;
-	char	*e;
 	long	i, k;
 
 	for (i = 0, x = args; x != NIL; x = cdr(x)) {
@@ -2695,10 +2725,9 @@ cell *op_strsym(short op) {
 
 cell *op_symstr(short op) {
 	cell	*x;
-	char	*e, *s;
+	char	*e;
 
 	typechk_1("symbol->string", args, T_SYMBOL);
-	s = symname(car(args));
 	x = mk_string2("", strlen(symname(car(args))));
 	strcpy(string(x), symname(car(args)));
 	s_return(x);
